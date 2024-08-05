@@ -1,0 +1,6 @@
+[submodule "third-party/comet"]
+	path = third-party/comet
+	url = https://github.com/mtrafisz/comet.git
+[submodule "third-party/json-c"]
+	path = third-party/json-c
+	url = https://github.com/json-c/json-c.git
