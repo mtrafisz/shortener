@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <signal.h>
 #include <time.h>
 
 #include <sqlite3.h>
@@ -9,6 +10,12 @@
 
 CometRouter* router;
 Database* db;
+
+void sigint_handler(int _) {
+    router->running = false;
+    puts("");
+    log_message(LOG_INFO, "SIGINT received, shutting down...");
+}
 
 char* get_rand_id(size_t len) {
     const char* charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -56,24 +63,98 @@ HttpcResponse* post_short(HttpcRequest* req, UrlParams* _) {
     char* id = get_rand_id(8);
     if (!db_set(db, id, url_str)) {
         res = httpc_response_new("Internal Server Error", 500);
-        httpc_response_set_body(res, "Failed to save URL", 19);
+        httpc_response_set_body(res, "Failed to save URL", 20);
         goto send;
     }
 
     json_object* id_json = json_object_new_string(id);
     const char* id_str = json_object_to_json_string(id_json);
 
+    json_object* created = json_object_new_object();
+    json_object_object_add(created, "id", id_json);
+
+    const char* created_str = json_object_to_json_string(created);
+
     res = httpc_response_new("Created", 201);
-    httpc_response_set_body(res, id_str, strlen(id_str));
-    
+    httpc_response_set_body(res, created_str, strlen(created_str));
+
     json_object_put(root);
+    json_object_put(created);
     json_object_put(id_json);
 
     httpc_header_free(content_type);
     content_type = httpc_header_new("Content-Type", "application/json");
 
 send:
-    httpc_add_header_h(res->headers, content_type);
+    httpc_add_header_h(&res->headers, content_type);
+    return res;
+}
+
+HttpcResponse* get_short(HttpcRequest* req, UrlParams* params) {
+    HttpcResponse* res;
+    HttpcHeader* content_type = httpc_header_new("Content-Type", "text/plain");
+
+    const char* id = NULL;
+
+    for (size_t i = 0; i < params->num_params; i++) {
+        if (strcmp(params->params[i].key, "id") == 0) {
+            id = params->params[i].value;
+            break;
+        }
+    }
+
+    if (id == NULL) {
+        res = httpc_response_new("Bad Request", 400);
+        httpc_response_set_body(res, "Missing 'id' parameter", 21);
+        goto send;
+    }
+
+    char* url = db_get(db, id);
+
+    if (url == NULL) {
+        res = httpc_response_new("Not Found", 404);
+        httpc_response_set_body(res, "Short URL not found", 19);
+        goto send;
+    }
+
+    res = httpc_response_new("Found", 302);
+    httpc_response_set_body(res, url, strlen(url));
+    httpc_add_header_h(&res->headers, httpc_header_new("Location", url));
+
+send:
+    httpc_add_header_h(&res->headers, content_type);
+    return res;
+}
+
+HttpcResponse* delete_short(HttpcRequest* req, UrlParams* params) {
+    HttpcResponse* res;
+    HttpcHeader* content_type = httpc_header_new("Content-Type", "text/plain");
+
+    const char* id = NULL;
+
+    for (size_t i = 0; i < params->num_params; i++) {
+        if (strcmp(params->params[i].key, "id") == 0) {
+            id = params->params[i].value;
+            break;
+        }
+    }
+
+    if (id == NULL) {
+        res = httpc_response_new("Bad Request", 400);
+        httpc_response_set_body(res, "Missing 'id' parameter", 21);
+        goto send;
+    }
+
+    if (!db_del(db, id)) {
+        res = httpc_response_new("Not Found", 404);
+        httpc_response_set_body(res, "Short URL not found", 19);
+        goto send;
+    }
+
+    res = httpc_response_new("No Content", 204);
+
+send:
+    httpc_add_header_h(&res->headers, content_type);
     return res;
 }
 
@@ -85,17 +166,20 @@ HttpcRequest* log_request(HttpcRequest* req, UrlParams* _) {
 int main(void) {
     srand(time(NULL));
     comet_init(false, true);
+    signal(SIGINT, sigint_handler);
 
     router = router_init(8080);
     if (router == NULL) {
         return 1;
     }
 
-    if (!db_open(&db, "test.db")) {
+    if (!db_open(&db, "shortener.db")) {
         return 1;
     }
 
     router_add_route(router, "/short", HTTPC_POST, post_short);
+    router_add_route(router, "/short/{id}", HTTPC_GET, get_short);
+    router_add_route(router, "/short/{id}", HTTPC_DELETE, delete_short);
 
     for (size_t i = 0; i < router->num_routes; i++) {
         router_add_middleware(router, i, log_request);
