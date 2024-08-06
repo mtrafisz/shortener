@@ -40,6 +40,8 @@ int main(void) {
     router_add_route(router, "/short", HTTPC_POST, post_short);
     router_add_route(router, "/short/{id}", HTTPC_GET, get_short);
     router_add_route(router, "/short/{id}", HTTPC_DELETE, delete_short);
+    router_add_route(router, "/", HTTPC_GET, redirect_home);
+    router_add_route(router, "/*", HTTPC_GET, get_static);
 
     for (size_t i = 0; i < router->num_routes; i++) {
         router_add_middleware(router, i, log_request);
