@@ -140,13 +140,13 @@ HttpcResponse* delete_short(void* ctx, HttpcRequest* req, UrlParams* params) {
 
     if (id == NULL) {
         res = httpc_response_new("Bad Request", 400);
-        httpc_response_set_body(res, "Missing 'id' parameter", 21);
+        httpc_response_set_body(res, "Missing 'id' parameter", 22);
         goto send;
     }
 
     if (!db_del(context->db, id)) {
-        res = httpc_response_new("Not Found", 404);
-        httpc_response_set_body(res, "Short URL not found", 19);
+        res = httpc_response_new("Internal Server Error", 500);
+        httpc_response_set_body(res, "Failed to delete URL", 20);
         goto send;
     }
 
